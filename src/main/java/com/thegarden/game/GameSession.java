@@ -28,11 +28,42 @@ public class GameSession {
     }
 
     public Player addPlayer(String name) {
-        String seed = random.nextBoolean() ? "hot" : "cold";
         String id = UUID.randomUUID().toString().substring(0, 8);
-        Player p = new Player(id, name, seed);
+        Player p = new Player(id, name, null); // Seed will be assigned when game starts
         players.put(id, p);
         return p;
+    }
+
+    public void assignSeeds() {
+        // Only assign if not already assigned
+        if (players.values().stream().anyMatch(p -> p.seed != null)) {
+            return; // Seeds already assigned
+        }
+
+        int playerCount = players.size();
+        int hotCount = playerCount / 2;
+        int coldCount = playerCount - hotCount;
+
+        // For odd number of players, randomly decide if the extra goes to hot or cold
+        if (playerCount % 2 == 1) {
+            if (random.nextBoolean()) {
+                hotCount++;
+                coldCount--;
+            }
+        }
+
+        // Shuffle players and assign seeds
+        List<Player> playerList = new ArrayList<>(players.values());
+        Collections.shuffle(playerList, random);
+
+        for (int i = 0; i < hotCount; i++) {
+            playerList.get(i).seed = "hot";
+        }
+        for (int i = hotCount; i < playerCount; i++) {
+            playerList.get(i).seed = "cold";
+        }
+
+        log.add("Seeds assigned: " + hotCount + " hot, " + coldCount + " cold.");
     }
 
     public boolean isLastRound() {
@@ -40,6 +71,11 @@ public class GameSession {
     }
 
     public void startRound() {
+        // Assign seeds on first round only
+        if (currentRound == 0) {
+            assignSeeds();
+        }
+
         currentRound++;
         currentEvent = "nothing";
         eventRevealedToAll = false;
@@ -124,7 +160,7 @@ public class GameSession {
         p.actionCardsBought += 1;
         p.actionCardTarget = target;
         if ("water".equals(target)) p.actionCardWaterChoice = waterChoiceForCard;
-        log.add(p.name + " bought an Action Card targeting " + target + ".");
+        p.personalLog.add("You bought an Action Card targeting " + target + ".");
     }
 
     public void sacrifice(String playerId, String stat, int amount) {
@@ -135,19 +171,19 @@ public class GameSession {
             if (amount <= 0) return;
             p.temp -= amount;
             p.coins += amount;
-            log.add(p.name + " sacrificed " + amount + " Temperature point(s) for " + amount + " coin(s).");
+            p.personalLog.add("You sacrificed " + amount + " Temperature point(s) for " + amount + " coin(s).");
         } else if (stat.equals("water")) {
             amount = Math.min(amount, p.water);
             if (amount <= 0) return;
             p.water -= amount;
             p.coins += amount;
-            log.add(p.name + " sacrificed " + amount + " Water point(s) for " + amount + " coin(s).");
+            p.personalLog.add("You sacrificed " + amount + " Water point(s) for " + amount + " coin(s).");
         } else if (stat.equals("fert")) {
             double a = Math.min(amount, p.fertBonus);
             if (a <= 0) return;
             p.fertBonus -= a;
             p.coins += (int) a;
-            log.add(p.name + " sacrificed " + (int) a + " Fertilizer Bonus point(s) for " + (int) a + " coin(s).");
+            p.personalLog.add("You sacrificed " + (int) a + " Fertilizer Bonus point(s) for " + (int) a + " coin(s).");
         }
     }
 
@@ -157,7 +193,8 @@ public class GameSession {
         if (from == null || to == null || amount <= 0 || from.coins < amount) return;
         from.coins -= amount;
         to.coins += amount;
-        log.add(from.name + " gifted " + amount + " coin(s) to " + to.name + ".");
+        from.personalLog.add("You gifted " + amount + " coin(s) to " + to.name + ".");
+        to.personalLog.add("You received " + amount + " coin(s) from " + from.name + ".");
     }
 
     private List<Long> fibSequence(int n) {

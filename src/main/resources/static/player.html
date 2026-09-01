@@ -2,20 +2,59 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The Garden - Player</title>
 <style>
+  * { box-sizing: border-box; }
   body { font-family: sans-serif; max-width: 480px; margin: 20px auto; padding: 0 16px; background:#f4f7f2; }
-  h1 { color: #2e7d32; }
+  h1 { color: #2e7d32; margin: 0 0 16px 0; }
   .card { background: white; border-radius: 10px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
   .stat { display:flex; justify-content:space-between; font-size: 18px; margin: 4px 0; }
-  button { padding: 9px 14px; margin: 4px; border: none; border-radius: 8px; background:#2e7d32; color:white; font-size:14px; cursor:pointer; }
+  button { padding: 9px 14px; margin: 4px; border: none; border-radius: 8px; background:#2e7d32; color:white; font-size:14px; cursor:pointer; transition: background 0.2s; }
+  button:hover:not(:disabled) { background:#1b5e20; }
+  button:disabled { background:#ccc; color:#999; cursor:not-allowed; }
   button.secondary { background:#1976d2; }
-  input, select { padding:8px; border-radius:6px; border:1px solid #ccc; }
+  button.secondary:hover:not(:disabled) { background:#1565c0; }
+  button.event-btn { padding: 10px 12px; margin: 6px 6px 6px 0; width: calc(50% - 6px); font-size: 12px; text-align: center; flex-grow: 1; }
+  button.event-btn.selected { background:#0d47a1; font-weight: bold; }
+  .event-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+  .action-button-selected { background: #388e3c; font-weight: bold; box-shadow: 0 0 8px rgba(56, 142, 60, 0.4); }
+  input, select { padding:8px; border-radius:6px; border:1px solid #ccc; width: 100%; }
+  input[type="number"] { width: auto; }
   #log { font-size: 13px; color:#555; max-height:150px; overflow-y:auto; }
   .seed-hot { color:#d32f2f; font-weight:bold; }
   .seed-cold { color:#1976d2; font-weight:bold; }
   .event-reveal { background:#fff3e0; padding:10px; border-radius:8px; font-weight:bold; color:#e65100; }
   .section-label { font-weight:bold; margin-top:10px; display:block; }
+  .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center; }
+  .modal.active { display:flex; }
+  .modal-content { background:white; border-radius:10px; padding:20px; max-width:400px; width:90%; box-shadow:0 4px 6px rgba(0,0,0,0.2); }
+  .modal-header { font-weight:bold; font-size:16px; margin-bottom:16px; }
+  .modal-close { float:right; font-size:24px; cursor:pointer; color:#999; }
+  .modal-close:hover { color:#333; }
+  .modal-buttons { display:flex; gap:8px; margin-top:16px; }
+  .modal-buttons button { flex:1; }
+  .optional-action-btn { width:100%; margin:4px 0; }
+  .optional-actions { margin-top:12px; padding-top:12px; border-top:1px solid #eee; }
+  
+  @media (max-width: 600px) {
+    body { padding: 0 12px; }
+    .card { padding: 14px; }
+    h1 { font-size: 24px; }
+    .stat { font-size: 16px; }
+    button { padding: 10px 12px; font-size: 13px; }
+    button.event-btn { width: calc(50% - 3px); margin: 3px 3px 3px 0; }
+    input { font-size: 16px; }
+    #log { max-height: 120px; font-size: 12px; }
+  }
+  
+  @media (max-width: 400px) {
+    body { margin: 10px auto; padding: 0 8px; }
+    .card { padding: 12px; margin-bottom: 10px; }
+    button { padding: 8px 10px; font-size: 12px; margin: 3px; }
+    button.event-btn { width: 100%; margin: 3px 0; }
+    .stat { font-size: 14px; }
+  }
 </style>
 </head>
 <body>
@@ -38,15 +77,19 @@
   <hr>
 
   <div id="bid-area" style="display:none;">
-    <span class="section-label">Event Pool: pay coins to stack the pool & try to see the event</span>
-    <select id="bidEventChoice">
-      <option value="double_water">Double Water</option>
-      <option value="half_water">Half Water</option>
-      <option value="double_fert_odds">Double Fertilizer Odds</option>
-      <option value="half_fert_odds">Half Fertilizer Odds</option>
-      <option value="nothing">Nothing</option>
-    </select><br>
-    <input id="bidAmount" type="number" placeholder="Coins to spend" style="width:100px;">
+    <span class="section-label">How many coins do you want to bid?</span>
+    <select id="bidAmount" onchange="updateEventButtons()">
+      <option value="0">0 coins</option>
+    </select>
+    <br><br>
+    <span class="section-label">Event Pool: choose which event you're betting on</span>
+    <div class="event-buttons">
+      <button class="event-btn" id="evt-double_water" onclick="selectEvent('double_water')" disabled>Double Water</button>
+      <button class="event-btn" id="evt-half_water" onclick="selectEvent('half_water')" disabled>Half Water</button>
+      <button class="event-btn" id="evt-double_fert_odds" onclick="selectEvent('double_fert_odds')" disabled>Double Fert Odds</button>
+      <button class="event-btn" id="evt-half_fert_odds" onclick="selectEvent('half_fert_odds')" disabled>Half Fert Odds</button>
+      <button class="event-btn" id="evt-nothing" onclick="selectEvent('nothing')" disabled>Nothing</button>
+    </div>
     <button onclick="submitBid()">Submit Contribution</button>
   </div>
 
@@ -54,25 +97,16 @@
 
   <div id="action-area" style="display:none;">
     <span class="section-label">Choose your Free Action (choose one)</span>
-    <button onclick="chooseAction('temp')">Temperature</button>
-    <button onclick="chooseAction('water')">Water</button>
-    <button onclick="chooseAction('fert')">Fertilizer</button>
+    <button id="action-btn-temp" onclick="chooseAction('temp')">Temperature</button>
+    <button id="action-btn-water" onclick="chooseAction('water')">Water</button>
+    <button id="action-btn-fert" onclick="chooseAction('fert')">Fertilizer</button>
 
-    <span class="section-label">Optional: buy Action Cards (1 coin each, extends influence only)</span>
-    <button class="secondary" onclick="buyActionCard('temp')">Push Temp (+influence to the Scale)</button>
-    <button class="secondary" onclick="buyActionCard('water','share')">Add Water weight (Share)</button>
-    <button class="secondary" onclick="buyActionCard('water','steal')">Add Water weight (Steal)</button>
-
-    <span class="section-label">Optional: Sacrifice a resource point for a coin</span>
-    <input id="sacAmount" type="number" placeholder="Amount" style="width:60px;">
-    <button onclick="sacrifice('temp')">Sacrifice Temp</button>
-    <button onclick="sacrifice('water')">Sacrifice Water</button>
-    <button onclick="sacrifice('fert')">Sacrifice Fertilizer</button>
-
-    <span class="section-label">Optional: Gift coins to another player</span>
-    <input id="giftTarget" placeholder="Player name"><br>
-    <input id="giftAmount" type="number" placeholder="Amount" style="width:60px;">
-    <button onclick="giftCoins()">Send Gift</button>
+    <div class="optional-actions">
+      <span class="section-label">Optional Actions</span>
+      <button class="optional-action-btn" onclick="openModal('buyActionModal')">Buy Action Cards</button>
+      <button class="optional-action-btn" onclick="openModal('sacrificeModal')">Sacrifice Resource for Coin</button>
+      <button class="optional-action-btn" onclick="openModal('giftModal')">Gift Coins to Player</button>
+    </div>
 
     <br><br>
     <button onclick="confirmDone()">Lock In My Action</button>
@@ -84,15 +118,82 @@
     <button onclick="submitWater('steal')">Steal</button>
   </div>
 
+  <!-- Modals -->
+  <div id="buyActionModal" class="modal">
+    <div class="modal-content">
+      <div><span class="modal-close" onclick="closeModal('buyActionModal')">×</span></div>
+      <div class="modal-header">Buy Action Cards (1 coin each)</div>
+      <p style="font-size:12px; color:#666; margin-bottom:12px;">Extends your influence only</p>
+      <button class="secondary" style="width:100%; margin-bottom:8px;" onclick="addActionCard('temp'); closeModal('buyActionModal');">Push Temp (+influence to the Scale)</button>
+      <button class="secondary" style="width:100%; margin-bottom:8px;" onclick="addActionCard('water','share'); closeModal('buyActionModal');">Add Water weight (Share)</button>
+      <button class="secondary" style="width:100%; margin-bottom:8px;" onclick="addActionCard('water','steal'); closeModal('buyActionModal');">Add Water weight (Steal)</button>
+      <div id="actionCardsHistory" style="margin-top:12px; padding-top:12px; border-top:1px solid #eee; font-size:12px;"></div>
+      <div class="modal-buttons">
+        <button onclick="closeModal('buyActionModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="sacrificeModal" class="modal">
+    <div class="modal-content">
+      <div><span class="modal-close" onclick="closeModal('sacrificeModal')">×</span></div>
+      <div class="modal-header">Sacrifice Resource for Coin</div>
+      <p style="font-size:12px; color:#666; margin-bottom:12px;">Convert 1 resource point into 1 coin</p>
+      <label>Amount: <select id="sacAmount">
+        <option value="">-- Select Amount --</option>
+      </select></label>
+      <div class="modal-buttons">
+        <button onclick="performSacrifice('temp')">Sacrifice Temp</button>
+        <button onclick="performSacrifice('water')">Sacrifice Water</button>
+        <button onclick="performSacrifice('fert')">Sacrifice Fert</button>
+      </div>
+      <div id="sacrificeHistory" style="margin-top:12px; padding-top:12px; border-top:1px solid #eee; font-size:12px;"></div>
+      <div class="modal-buttons">
+        <button onclick="closeModal('sacrificeModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="giftModal" class="modal">
+    <div class="modal-content">
+      <div><span class="modal-close" onclick="closeModal('giftModal')">×</span></div>
+      <div class="modal-header">Gift Coins to Player</div>
+      <p style="font-size:12px; color:#666; margin-bottom:12px;">Send coins to another player</p>
+      <label>Player: <select id="giftTarget">
+        <option value="">-- Select Player --</option>
+      </select></label>
+      <label>Amount: <select id="giftAmount">
+        <option value="">-- Select Amount --</option>
+      </select></label>
+      <div class="modal-buttons">
+        <button onclick="performGift()">Send Gift</button>
+        <button onclick="closeModal('giftModal')">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div id="status" style="margin-top:10px; font-weight:bold;"></div>
 </div>
 
 <div class="card"><h4>Log</h4><div id="log"></div></div>
 
+<div class="card"><h4>Your Score</h4>
+  <div class="stat" style="font-size: 16px;">
+    <span>Score:</span>
+    <span id="scoreDisplay" style="font-weight: bold; color: #2e7d32;"></span>
+  </div>
+  <div style="font-size: 12px; color: #666; margin-top: 8px; padding-top: 8px; border-top: 1px solid #eee;">
+    <div>Formula: (Temp × Water) + (Fertilizer Bonus × 1.5)</div>
+    <div id="scoreBreakdown" style="margin-top: 6px; font-family: monospace;"></div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
 <script>
 let gameId, playerId, stompClient, currentState;
+let boughtActionCards = []; // Track reversible actions
+let sacrificedResources = []; // Track reversible actions
 
 function joinGame() {
   gameId = document.getElementById('gameId').value.trim().toUpperCase();
@@ -127,7 +228,67 @@ function renderState(state) {
   document.getElementById('water').innerText = me.water;
   document.getElementById('coins').innerText = me.coins;
   document.getElementById('fert').innerText = me.fertBonus.toFixed(1);
-  document.getElementById('log').innerHTML = state.log.slice(-8).reverse().map(l => `<div>${l}</div>`).join('');
+  // Display personal logs for current player only
+  const personalLogs = me.personalLog || [];
+  document.getElementById('log').innerHTML = personalLogs.slice(-8).reverse().map(l => `<div>${l}</div>`).join('');
+
+  // Calculate and display score
+  const tempScore = me.temp * me.water;
+  const fertScore = me.fertBonus * 1.5;
+  const totalScore = (tempScore + fertScore).toFixed(1);
+  document.getElementById('scoreDisplay').innerText = totalScore;
+  document.getElementById('scoreBreakdown').innerHTML = 
+    `(${me.temp} × ${me.water}) + (${me.fertBonus.toFixed(1)} × 1.5)<br>` +
+    `= ${tempScore} + ${fertScore.toFixed(2)}<br>` +
+    `= ${totalScore}`;
+
+  // Populate bid amount dropdown
+  const bidSelect = document.getElementById('bidAmount');
+  const currentBidValue = bidSelect.value;
+  bidSelect.innerHTML = '';
+  for (let i = 0; i <= me.coins; i++) {
+    const option = document.createElement('option');
+    option.value = i;
+    option.text = i + ' coin' + (i !== 1 ? 's' : '');
+    bidSelect.appendChild(option);
+  }
+  if (currentBidValue !== '') bidSelect.value = currentBidValue;
+
+  // Populate gift target dropdown
+  const giftTargetSelect = document.getElementById('giftTarget');
+  const otherPlayers = Object.values(state.players).filter(p => p.id !== playerId);
+  giftTargetSelect.innerHTML = '<option value="">-- Select Player --</option>';
+  otherPlayers.forEach(p => {
+    const option = document.createElement('option');
+    option.value = p.id;
+    option.text = p.name;
+    giftTargetSelect.appendChild(option);
+  });
+
+  // Populate gift amount dropdown
+  const giftAmountSelect = document.getElementById('giftAmount');
+  const currentGiftValue = giftAmountSelect.value;
+  giftAmountSelect.innerHTML = '<option value="">-- Select Amount --</option>';
+  for (let i = 1; i <= me.coins; i++) {
+    const option = document.createElement('option');
+    option.value = i;
+    option.text = i + ' coin' + (i !== 1 ? 's' : '');
+    giftAmountSelect.appendChild(option);
+  }
+  if (currentGiftValue !== '') giftAmountSelect.value = currentGiftValue;
+
+  // Populate sacrifice amount dropdown
+  const sacAmountSelect = document.getElementById('sacAmount');
+  const currentSacValue = sacAmountSelect.value;
+  sacAmountSelect.innerHTML = '<option value="">-- Select Amount --</option>';
+  const maxSacrifice = Math.max(me.temp, me.water, Math.floor(me.fertBonus));
+  for (let i = 1; i <= maxSacrifice; i++) {
+    const option = document.createElement('option');
+    option.value = i;
+    option.text = i;
+    sacAmountSelect.appendChild(option);
+  }
+  if (currentSacValue !== '') sacAmountSelect.value = currentSacValue;
 
   if (state.biddingOpen) {
     document.getElementById('bid-area').style.display = me.bidSubmitted ? 'none' : 'block';
@@ -144,6 +305,7 @@ function renderState(state) {
     }
     document.getElementById('action-area').style.display = me.actionSubmitted ? 'none' : 'block';
     document.getElementById('status').innerText = me.actionSubmitted ? 'Action locked in, waiting...' : '';
+    updateActionHistories();
   } else {
     document.getElementById('bid-area').style.display = 'none';
     document.getElementById('action-area').style.display = 'none';
@@ -155,7 +317,7 @@ function renderState(state) {
 
 function submitBid() {
   const amount = parseInt(document.getElementById('bidAmount').value) || 0;
-  const eventChoice = document.getElementById('bidEventChoice').value;
+  const eventChoice = selectedEvent || 'nothing';
   fetch(`/api/${gameId}/submit-bid`, {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({playerId, amount, eventChoice})});
 }
@@ -163,17 +325,25 @@ function submitBid() {
 let pendingAction = null;
 function chooseAction(action) {
   pendingAction = action;
-  if (action === 'water') {
+  // Update button styling to show selection
+  document.getElementById('action-btn-temp').classList.remove('action-button-selected');
+  document.getElementById('action-btn-water').classList.remove('action-button-selected');
+  document.getElementById('action-btn-fert').classList.remove('action-button-selected');
+  
+  // Highlight the selected button
+  if (action === 'temp') {
+    document.getElementById('action-btn-temp').classList.add('action-button-selected');
+  } else if (action === 'water') {
+    document.getElementById('action-btn-water').classList.add('action-button-selected');
     document.getElementById('water-choice-area').style.display = 'block';
-  } else {
-    alert('Free action set to: ' + action + '. Click "Lock In My Action" when ready.');
+  } else if (action === 'fert') {
+    document.getElementById('action-btn-fert').classList.add('action-button-selected');
   }
 }
 function submitWater(choice) {
   pendingAction = 'water';
   window.waterChoice = choice;
   document.getElementById('water-choice-area').style.display = 'none';
-  alert('Free action set to Water (' + choice + '). Click "Lock In My Action" when ready.');
 }
 
 function buyActionCard(target, waterChoice) {
@@ -181,11 +351,39 @@ function buyActionCard(target, waterChoice) {
     body: JSON.stringify({playerId, target, waterChoice: waterChoice || null})});
 }
 
+function addActionCard(target, waterChoice) {
+  // Track the action locally as reversible
+  const cardType = target === 'temp' ? 'Push Temp' : (waterChoice === 'share' ? 'Water (Share)' : 'Water (Steal)');
+  boughtActionCards.push({target, waterChoice, cardType});
+  
+  // Immediately send to server
+  buyActionCard(target, waterChoice);
+  
+  // Update display
+  updateActionHistories();
+}
+
 function sacrifice(stat) {
   const amount = parseInt(document.getElementById('sacAmount').value);
   if (!amount || amount <= 0) return;
   fetch(`/api/${gameId}/sacrifice`, {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({playerId, stat, amount})});
+}
+
+function performSacrifice(stat) {
+  const amount = parseInt(document.getElementById('sacAmount').value);
+  if (!amount || amount <= 0) { alert('Please select an amount'); return; }
+  
+  // Track the action locally as reversible
+  sacrificedResources.push({stat, amount});
+  
+  // Immediately send to server
+  fetch(`/api/${gameId}/sacrifice`, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({playerId, stat, amount})});
+  
+  // Reset and update display
+  document.getElementById('sacAmount').value = '';
+  updateActionHistories();
 }
 
 function giftCoins() {
@@ -198,11 +396,93 @@ function giftCoins() {
     body: JSON.stringify({fromId: playerId, toId: target.id, amount})});
 }
 
+function performGift() {
+  const targetId = document.getElementById('giftTarget').value;
+  const amount = parseInt(document.getElementById('giftAmount').value);
+  if (!targetId || !amount) { alert('Please select a player and amount'); return; }
+  
+  const target = Object.values(currentState.players).find(p => p.id === targetId);
+  if (!target) { alert('Player not found'); return; }
+  
+  fetch(`/api/${gameId}/gift-coins`, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({fromId: playerId, toId: target.id, amount})});
+  
+  document.getElementById('giftTarget').value = '';
+  document.getElementById('giftAmount').value = '';
+  closeModal('giftModal');
+}
+
 function confirmDone() {
   if (!pendingAction) { alert('Choose a Free Action first.'); return; }
   fetch(`/api/${gameId}/submit-action`, {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({playerId, action: pendingAction, waterChoice: window.waterChoice || null})});
 }
+
+let selectedEvent = null;
+
+function openModal(modalId) {
+  document.getElementById(modalId).classList.add('active');
+}
+
+function closeModal(modalId) {
+  document.getElementById(modalId).classList.remove('active');
+}
+
+function selectEvent(eventName) {
+  selectedEvent = eventName;
+  // Update button styling
+  document.querySelectorAll('.event-btn').forEach(btn => btn.classList.remove('selected'));
+  document.getElementById('evt-' + eventName).classList.add('selected');
+}
+
+function updateActionHistories() {
+  // Update bought action cards history
+  if (boughtActionCards.length > 0) {
+    let html = '<strong>Bought Cards:</strong><br>';
+    boughtActionCards.forEach((card, idx) => {
+      html += `${card.cardType} <button style="font-size:10px; padding:2px 6px;" onclick="undoActionCard(${idx})">Undo</button><br>`;
+    });
+    document.getElementById('actionCardsHistory').innerHTML = html;
+  } else {
+    document.getElementById('actionCardsHistory').innerHTML = '';
+  }
+  
+  // Update sacrificed resources history
+  if (sacrificedResources.length > 0) {
+    let html = '<strong>Sacrificed Resources:</strong><br>';
+    sacrificedResources.forEach((sac, idx) => {
+      html += `${sac.amount} ${sac.stat.charAt(0).toUpperCase() + sac.stat.slice(1)} <button style="font-size:10px; padding:2px 6px;" onclick="undoSacrifice(${idx})">Undo</button><br>`;
+    });
+    document.getElementById('sacrificeHistory').innerHTML = html;
+  } else {
+    document.getElementById('sacrificeHistory').innerHTML = '';
+  }
+}
+
+function undoActionCard(idx) {
+  // Remove from local tracking
+  boughtActionCards.splice(idx, 1);
+  updateActionHistories();
+  // Note: This is local-only. Actual undo on server would require additional API support
+}
+
+function undoSacrifice(idx) {
+  // Remove from local tracking
+  sacrificedResources.splice(idx, 1);
+  updateActionHistories();
+  // Note: This is local-only. Actual undo on server would require additional API support
+}
+
+function updateEventButtons() {
+  const bidAmount = parseInt(document.getElementById('bidAmount').value) || 0;
+  const isDisabled = bidAmount === 0;
+  document.querySelectorAll('.event-btn').forEach(btn => {
+    btn.disabled = isDisabled;
+  });
+}
+
+// Set up bid amount listener to enable/disable event buttons (already handled by onchange in HTML)
+
 </script>
 </body>
 </html>

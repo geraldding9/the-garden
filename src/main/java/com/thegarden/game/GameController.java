@@ -20,12 +20,15 @@ public class GameController {
     }
 
     @PostMapping("/api/join-game/{gameId}")
-    public Map<String, String> joinGame(@PathVariable String gameId, @RequestBody Map<String, String> body) {
+    public Map<String, Object> joinGame(@PathVariable String gameId, @RequestBody Map<String, String> body) {
         GameSession session = gameManager.getGame(gameId);
         if (session == null) return Map.of("error", "Game not found");
         Player p = session.addPlayer(body.get("name"));
         broadcastState(gameId);
-        return Map.of("playerId", p.id, "seed", p.seed);
+        Map<String, Object> response = new HashMap<>();
+        response.put("playerId", p.id);
+        response.put("seed", p.seed); // Can be null until seeds are assigned
+        return response;
     }
 
     @PostMapping("/api/{gameId}/start-round")

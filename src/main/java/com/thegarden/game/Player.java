@@ -1,5 +1,7 @@
 package com.thegarden.game;
 
+import java.util.*;
+
 public class Player {
     public String id;
     public String name;
@@ -21,6 +23,8 @@ public class Player {
     public int actionCardsBought = 0;
     public String actionCardTarget; // "temp" or "water"
     public String actionCardWaterChoice;
+
+    public List<String> personalLog = new ArrayList<>(); // Private events only visible to this player
 
     public Player() {}
     public Player(String id, String name, String seed) {
