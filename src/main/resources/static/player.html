@@ -60,12 +60,14 @@
 <body>
 <h1>🌱 The Garden</h1>
 
+
 <div class="card" id="join-card">
   <h3>Join Game</h3>
   <input id="gameId" placeholder="Game ID"><br><br>
   <input id="playerName" placeholder="Your name"><br><br>
   <button onclick="joinGame()">Join</button>
 </div>
+
 
 <div class="card" id="game-card" style="display:none;">
   <div class="stat">Seed: <span id="seed"></span></div>
@@ -75,6 +77,7 @@
   <div class="stat">Coins: <span id="coins"></span></div>
   <div class="stat">Fertilizer Bonus: <span id="fert"></span></div>
   <hr>
+
 
   <div id="bid-area" style="display:none;">
     <span class="section-label">How many coins do you want to bid?</span>
@@ -93,13 +96,16 @@
     <button onclick="submitBid()">Submit Contribution</button>
   </div>
 
+
   <div id="event-reveal-area" style="display:none;"><div class="event-reveal" id="eventRevealText"></div></div>
+
 
   <div id="action-area" style="display:none;">
     <span class="section-label">Choose your Free Action (choose one)</span>
     <button id="action-btn-temp" onclick="chooseAction('temp')">Temperature</button>
     <button id="action-btn-water" onclick="chooseAction('water')">Water</button>
     <button id="action-btn-fert" onclick="chooseAction('fert')">Fertilizer</button>
+
 
     <div class="optional-actions">
       <span class="section-label">Optional Actions</span>
@@ -108,17 +114,26 @@
       <button class="optional-action-btn" onclick="openModal('giftModal')">Gift Coins to Player</button>
     </div>
 
+
     <br><br>
     <button onclick="confirmDone()">Lock In My Action</button>
   </div>
 
-  <div id="water-choice-area" style="display:none;">
-    <p>Water: Share or Steal?</p>
-    <button onclick="submitWater('share')">Share</button>
-    <button onclick="submitWater('steal')">Steal</button>
-  </div>
 
   <!-- Modals -->
+  <div id="waterChoiceModal" class="modal">
+    <div class="modal-content">
+      <div><span class="modal-close" onclick="closeModal('waterChoiceModal')">×</span></div>
+      <div class="modal-header">Water: Share or Steal?</div>
+      <p style="font-size:12px; color:#666; margin-bottom:12px;">This choice only applies if you Lock In Water as your Free Action.</p>
+      <div class="modal-buttons">
+        <button id="waterModalShareBtn" onclick="submitWater('share')">Share</button>
+        <button id="waterModalStealBtn" onclick="submitWater('steal')">Steal</button>
+      </div>
+    </div>
+  </div>
+
+
   <div id="buyActionModal" class="modal">
     <div class="modal-content">
       <div><span class="modal-close" onclick="closeModal('buyActionModal')">×</span></div>
@@ -133,6 +148,7 @@
       </div>
     </div>
   </div>
+
 
   <div id="sacrificeModal" class="modal">
     <div class="modal-content">
@@ -154,6 +170,7 @@
     </div>
   </div>
 
+
   <div id="giftModal" class="modal">
     <div class="modal-content">
       <div><span class="modal-close" onclick="closeModal('giftModal')">×</span></div>
@@ -172,10 +189,13 @@
     </div>
   </div>
 
+
   <div id="status" style="margin-top:10px; font-weight:bold;"></div>
 </div>
 
+
 <div class="card"><h4>Log</h4><div id="log"></div></div>
+
 
 <div class="card"><h4>Your Score</h4>
   <div class="stat" style="font-size: 16px;">
@@ -188,12 +208,16 @@
   </div>
 </div>
 
+
 <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
 <script>
 let gameId, playerId, stompClient, currentState;
 let boughtActionCards = []; // Track reversible actions
 let sacrificedResources = []; // Track reversible actions
+let lastRenderedRound = null; // Used to detect a fresh round and reset stale selections
+window.waterChoice = null;
+
 
 function joinGame() {
   gameId = document.getElementById('gameId').value.trim().toUpperCase();
@@ -202,13 +226,16 @@ function joinGame() {
     .then(r => r.json()).then(data => {
       if (data.error) { alert(data.error); return; }
       playerId = data.playerId;
-      document.getElementById('seed').innerText = data.seed;
-      document.getElementById('seed').className = data.seed === 'hot' ? 'seed-hot' : 'seed-cold';
+      // Seeds are assigned in bulk once the host starts Round 1, not at join time.
+      // renderState() below will pick up the real seed as soon as it exists in the broadcast state.
+      document.getElementById('seed').innerText = 'Assigning...';
+      document.getElementById('seed').className = '';
       document.getElementById('join-card').style.display = 'none';
       document.getElementById('game-card').style.display = 'block';
       connectSocket();
     });
 }
+
 
 function connectSocket() {
   const socket = new SockJS('/ws');
@@ -218,12 +245,31 @@ function connectSocket() {
   });
 }
 
+
 function renderState(state) {
   currentState = state;
+
+  // A new round has started: clear any leftover local selection state from the previous round.
+  if (lastRenderedRound !== null && lastRenderedRound !== state.currentRound) {
+    resetPlayerActionState();
+  }
+  lastRenderedRound = state.currentRound;
+
   document.getElementById('round').innerText = state.currentRound;
   document.getElementById('totalRounds').innerText = state.totalRounds;
   const me = state.players[playerId];
   if (!me) return;
+
+  // Seed may still be null if the host hasn't started Round 1 yet (seeds are assigned
+  // in bulk at that point to guarantee an even Hot/Cold split, not per-player at join time).
+  if (me.seed) {
+    document.getElementById('seed').innerText = me.seed;
+    document.getElementById('seed').className = me.seed === 'hot' ? 'seed-hot' : 'seed-cold';
+  } else {
+    document.getElementById('seed').innerText = 'Assigning...';
+    document.getElementById('seed').className = '';
+  }
+
   document.getElementById('temp').innerText = me.temp;
   document.getElementById('water').innerText = me.water;
   document.getElementById('coins').innerText = me.coins;
@@ -231,6 +277,7 @@ function renderState(state) {
   // Display personal logs for current player only
   const personalLogs = me.personalLog || [];
   document.getElementById('log').innerHTML = personalLogs.slice(-8).reverse().map(l => `<div>${l}</div>`).join('');
+
 
   // Calculate and display score
   const tempScore = me.temp * me.water;
@@ -241,6 +288,7 @@ function renderState(state) {
     `(${me.temp} × ${me.water}) + (${me.fertBonus.toFixed(1)} × 1.5)<br>` +
     `= ${tempScore} + ${fertScore.toFixed(2)}<br>` +
     `= ${totalScore}`;
+
 
   // Populate bid amount dropdown
   const bidSelect = document.getElementById('bidAmount');
@@ -254,6 +302,7 @@ function renderState(state) {
   }
   if (currentBidValue !== '') bidSelect.value = currentBidValue;
 
+
   // Populate gift target dropdown
   const giftTargetSelect = document.getElementById('giftTarget');
   const otherPlayers = Object.values(state.players).filter(p => p.id !== playerId);
@@ -264,6 +313,7 @@ function renderState(state) {
     option.text = p.name;
     giftTargetSelect.appendChild(option);
   });
+
 
   // Populate gift amount dropdown
   const giftAmountSelect = document.getElementById('giftAmount');
@@ -276,6 +326,7 @@ function renderState(state) {
     giftAmountSelect.appendChild(option);
   }
   if (currentGiftValue !== '') giftAmountSelect.value = currentGiftValue;
+
 
   // Populate sacrifice amount dropdown
   const sacAmountSelect = document.getElementById('sacAmount');
@@ -290,11 +341,13 @@ function renderState(state) {
   }
   if (currentSacValue !== '') sacAmountSelect.value = currentSacValue;
 
+
   if (state.biddingOpen) {
     document.getElementById('bid-area').style.display = me.bidSubmitted ? 'none' : 'block';
     document.getElementById('action-area').style.display = 'none';
     document.getElementById('event-reveal-area').style.display = 'none';
     document.getElementById('status').innerText = me.bidSubmitted ? 'Contribution submitted, waiting...' : '';
+    closeModal('waterChoiceModal');
   } else if (state.actionsOpen) {
     document.getElementById('bid-area').style.display = 'none';
     if (state.auctionWinnerIds && state.auctionWinnerIds.includes(playerId)) {
@@ -312,8 +365,10 @@ function renderState(state) {
     document.getElementById('event-reveal-area').style.display = 'block';
     document.getElementById('eventRevealText').innerText = 'Round resolved. Event: ' + state.currentEvent + ' | Temp Scale: ' + state.lastRoundScale;
     document.getElementById('status').innerText = 'Waiting for host...';
+    closeModal('waterChoiceModal');
   }
 }
+
 
 function submitBid() {
   const amount = parseInt(document.getElementById('bidAmount').value) || 0;
@@ -322,34 +377,74 @@ function submitBid() {
     body: JSON.stringify({playerId, amount, eventChoice})});
 }
 
+
 let pendingAction = null;
+
 function chooseAction(action) {
-  pendingAction = action;
-  // Update button styling to show selection
+  if (action === 'water') {
+    // Just open the modal; don't touch any button state until a choice is actually made.
+    openModal('waterChoiceModal');
+    return;
+  }
+
+  // Pivoting to Temperature or Fertilizer: clear every highlight and reset the Water
+  // button back to its plain label, since any earlier Share/Steal choice no longer applies.
   document.getElementById('action-btn-temp').classList.remove('action-button-selected');
   document.getElementById('action-btn-water').classList.remove('action-button-selected');
   document.getElementById('action-btn-fert').classList.remove('action-button-selected');
-  
-  // Highlight the selected button
+  window.waterChoice = null;
+  updateWaterButtonLabel();
+
+  pendingAction = action;
   if (action === 'temp') {
     document.getElementById('action-btn-temp').classList.add('action-button-selected');
-  } else if (action === 'water') {
-    document.getElementById('action-btn-water').classList.add('action-button-selected');
-    document.getElementById('water-choice-area').style.display = 'block';
   } else if (action === 'fert') {
     document.getElementById('action-btn-fert').classList.add('action-button-selected');
   }
 }
+
 function submitWater(choice) {
   pendingAction = 'water';
   window.waterChoice = choice;
-  document.getElementById('water-choice-area').style.display = 'none';
+
+  document.getElementById('action-btn-temp').classList.remove('action-button-selected');
+  document.getElementById('action-btn-fert').classList.remove('action-button-selected');
+  document.getElementById('action-btn-water').classList.add('action-button-selected');
+
+  updateWaterButtonLabel();
+  closeModal('waterChoiceModal');
 }
+
+function updateWaterButtonLabel() {
+  const btn = document.getElementById('action-btn-water');
+  if (window.waterChoice === 'share') {
+    btn.innerText = 'Water (Share)';
+  } else if (window.waterChoice === 'steal') {
+    btn.innerText = 'Water (Steal)';
+  } else {
+    btn.innerText = 'Water';
+  }
+}
+
+function resetPlayerActionState() {
+  pendingAction = null;
+  window.waterChoice = null;
+  boughtActionCards = [];
+  sacrificedResources = [];
+  document.getElementById('action-btn-temp').classList.remove('action-button-selected');
+  document.getElementById('action-btn-water').classList.remove('action-button-selected');
+  document.getElementById('action-btn-fert').classList.remove('action-button-selected');
+  updateWaterButtonLabel();
+  updateActionHistories();
+  closeModal('waterChoiceModal');
+}
+
 
 function buyActionCard(target, waterChoice) {
   fetch(`/api/${gameId}/buy-action-card`, {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({playerId, target, waterChoice: waterChoice || null})});
 }
+
 
 function addActionCard(target, waterChoice) {
   // Track the action locally as reversible
@@ -363,12 +458,14 @@ function addActionCard(target, waterChoice) {
   updateActionHistories();
 }
 
+
 function sacrifice(stat) {
   const amount = parseInt(document.getElementById('sacAmount').value);
   if (!amount || amount <= 0) return;
   fetch(`/api/${gameId}/sacrifice`, {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({playerId, stat, amount})});
 }
+
 
 function performSacrifice(stat) {
   const amount = parseInt(document.getElementById('sacAmount').value);
@@ -386,6 +483,7 @@ function performSacrifice(stat) {
   updateActionHistories();
 }
 
+
 function giftCoins() {
   const targetName = document.getElementById('giftTarget').value.trim();
   const amount = parseInt(document.getElementById('giftAmount').value);
@@ -395,6 +493,7 @@ function giftCoins() {
   fetch(`/api/${gameId}/gift-coins`, {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({fromId: playerId, toId: target.id, amount})});
 }
+
 
 function performGift() {
   const targetId = document.getElementById('giftTarget').value;
@@ -412,21 +511,26 @@ function performGift() {
   closeModal('giftModal');
 }
 
+
 function confirmDone() {
   if (!pendingAction) { alert('Choose a Free Action first.'); return; }
   fetch(`/api/${gameId}/submit-action`, {method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({playerId, action: pendingAction, waterChoice: window.waterChoice || null})});
 }
 
+
 let selectedEvent = null;
+
 
 function openModal(modalId) {
   document.getElementById(modalId).classList.add('active');
 }
 
+
 function closeModal(modalId) {
   document.getElementById(modalId).classList.remove('active');
 }
+
 
 function selectEvent(eventName) {
   selectedEvent = eventName;
@@ -434,6 +538,7 @@ function selectEvent(eventName) {
   document.querySelectorAll('.event-btn').forEach(btn => btn.classList.remove('selected'));
   document.getElementById('evt-' + eventName).classList.add('selected');
 }
+
 
 function updateActionHistories() {
   // Update bought action cards history
@@ -459,6 +564,7 @@ function updateActionHistories() {
   }
 }
 
+
 function undoActionCard(idx) {
   // Remove from local tracking
   boughtActionCards.splice(idx, 1);
@@ -466,12 +572,14 @@ function undoActionCard(idx) {
   // Note: This is local-only. Actual undo on server would require additional API support
 }
 
+
 function undoSacrifice(idx) {
   // Remove from local tracking
   sacrificedResources.splice(idx, 1);
   updateActionHistories();
   // Note: This is local-only. Actual undo on server would require additional API support
 }
+
 
 function updateEventButtons() {
   const bidAmount = parseInt(document.getElementById('bidAmount').value) || 0;
@@ -481,7 +589,9 @@ function updateEventButtons() {
   });
 }
 
+
 // Set up bid amount listener to enable/disable event buttons (already handled by onchange in HTML)
+
 
 </script>
 </body>
