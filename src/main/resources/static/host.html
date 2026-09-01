@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>The Garden - Host</title>
+<style>
+  body { font-family: sans-serif; max-width: 1000px; margin: 20px auto; padding: 0 16px; background:#f4f7f2; }
+  h1 { color: #2e7d32; }
+  .card { background: white; border-radius: 10px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { padding: 7px; border-bottom: 1px solid #eee; text-align: center; }
+  th { background: #e8f5e9; }
+  button { padding: 10px 18px; margin: 4px; border: none; border-radius: 8px; background:#2e7d32; color:white; font-size:15px; cursor:pointer; }
+  .seed-hot { color:#d32f2f; }
+  .seed-cold { color:#1976d2; }
+  #gameIdDisplay { font-size: 26px; font-weight: bold; color:#2e7d32; }
+  .phase-badge { display:inline-block; padding:4px 10px; border-radius:6px; font-size:13px; font-weight:bold; }
+  .phase-bidding { background:#fff3e0; color:#e65100; }
+  .phase-action { background:#e3f2fd; color:#1565c0; }
+  .phase-resolved { background:#e8f5e9; color:#2e7d32; }
+  input { padding:6px; width:60px; }
+</style>
+</head>
+<body>
+<h1>🌱 The Garden — Host Dashboard</h1>
+
+<div class="card" id="setup-card">
+  Rounds: <input id="totalRoundsInput" type="number" value="8">
+  <button onclick="createGame()">Create New Game</button>
+  <div id="gameIdDisplay"></div>
+</div>
+
+<div class="card" id="control-card" style="display:none;">
+  <p>Round: <span id="round">0</span> / <span id="totalRounds">-</span>
+     &nbsp; Phase: <span id="phaseBadge" class="phase-badge"></span>
+     &nbsp; Event: <span id="event">-</span>
+     &nbsp; Temp Scale: <span id="scale">-</span></p>
+  <button onclick="startRound()">Start Next Round</button>
+</div>
+
+<div class="card">
+  <h3>Players</h3>
+  <table>
+    <thead><tr><th>Name</th><th>Seed</th><th>Temp</th><th>Water</th><th>Coins</th><th>Bid</th><th>Fert Bonus</th><th>Score</th><th>Action</th><th>Cards Bought</th><th>Status</th></tr></thead>
+    <tbody id="playerRows"></tbody>
+  </table>
+</div>
+
+<div class="card"><h3>Log</h3><div id="log" style="font-size:13px; color:#555; max-height:220px; overflow-y:auto;"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+<script>
+let gameId, stompClient;
+
+function createGame() {
+  const totalRounds = parseInt(document.getElementById('totalRoundsInput').value) || 8;
+  fetch('/api/create-game', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({totalRounds})})
+    .then(r => r.json()).then(data => {
+      gameId = data.gameId;
+      document.getElementById('gameIdDisplay').innerText = 'Game ID: ' + gameId;
+      document.getElementById('control-card').style.display = 'block';
+      document.getElementById('totalRounds').innerText = totalRounds;
+      connectSocket();
+    });
+}
+
+function connectSocket() {
+  const socket = new SockJS('/ws');
+  stompClient = Stomp.over(socket);
+  stompClient.connect({}, () => {
+    stompClient.subscribe(`/topic/game/${gameId}`, msg => renderState(JSON.parse(msg.body)));
+  });
+}
+
+function startRound() { fetch(`/api/${gameId}/start-round`, {method:'POST'}); }
+
+function renderState(state) {
+  document.getElementById('round').innerText = state.currentRound;
+  document.getElementById('totalRounds').innerText = state.totalRounds;
+  document.getElementById('scale').innerText = state.lastRoundScale;
+  const badge = document.getElementById('phaseBadge');
+  if (state.biddingOpen) { badge.innerText = 'BIDDING'; badge.className = 'phase-badge phase-bidding'; }
+  else if (state.actionsOpen) { badge.innerText = 'ACTIONS'; badge.className = 'phase-badge phase-action'; }
+  else { badge.innerText = 'RESOLVED'; badge.className = 'phase-badge phase-resolved'; }
+  document.getElementById('event').innerText = state.eventRevealedToAll ? state.currentEvent : '(hidden until resolved)';
+
+  const rows = Object.values(state.players).map(p => {
+    const score = (p.temp*p.water + p.fertBonus*1.5).toFixed(1);
+    const seedClass = p.seed === 'hot' ? 'seed-hot' : 'seed-cold';
+    let status;
+    if (state.biddingOpen) status = p.bidSubmitted ? 'bid in' : 'bidding...';
+    else if (state.actionsOpen) status = p.actionSubmitted ? 'submitted' : 'waiting...';
+    else status = 'resolved';
+    return `<tr><td>${p.name}</td><td class="${seedClass}">${p.seed}</td><td>${p.temp}</td>
+      <td>${p.water}</td><td>${p.coins}</td><td>${p.currentBid||0}</td><td>${p.fertBonus.toFixed(1)}</td>
+      <td>${score}</td><td>${p.currentAction||'-'}${p.waterChoice?' ('+p.waterChoice+')':''}</td>
+      <td>${p.actionCardsBought||0}</td><td>${status}</td></tr>`;
+  }).join('');
+  document.getElementById('playerRows').innerHTML = rows;
+  document.getElementById('log').innerHTML = state.log.slice(-12).reverse().map(l => `<div>${l}</div>`).join('');
+}
+</script>
+</body>
+</html>

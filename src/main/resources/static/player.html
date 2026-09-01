@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>The Garden - Player</title>
+<style>
+  body { font-family: sans-serif; max-width: 480px; margin: 20px auto; padding: 0 16px; background:#f4f7f2; }
+  h1 { color: #2e7d32; }
+  .card { background: white; border-radius: 10px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+  .stat { display:flex; justify-content:space-between; font-size: 18px; margin: 4px 0; }
+  button { padding: 9px 14px; margin: 4px; border: none; border-radius: 8px; background:#2e7d32; color:white; font-size:14px; cursor:pointer; }
+  button.secondary { background:#1976d2; }
+  input, select { padding:8px; border-radius:6px; border:1px solid #ccc; }
+  #log { font-size: 13px; color:#555; max-height:150px; overflow-y:auto; }
+  .seed-hot { color:#d32f2f; font-weight:bold; }
+  .seed-cold { color:#1976d2; font-weight:bold; }
+  .event-reveal { background:#fff3e0; padding:10px; border-radius:8px; font-weight:bold; color:#e65100; }
+  .section-label { font-weight:bold; margin-top:10px; display:block; }
+</style>
+</head>
+<body>
+<h1>🌱 The Garden</h1>
+
+<div class="card" id="join-card">
+  <h3>Join Game</h3>
+  <input id="gameId" placeholder="Game ID"><br><br>
+  <input id="playerName" placeholder="Your name"><br><br>
+  <button onclick="joinGame()">Join</button>
+</div>
+
+<div class="card" id="game-card" style="display:none;">
+  <div class="stat">Seed: <span id="seed"></span></div>
+  <div class="stat">Round: <span id="round">-</span> / <span id="totalRounds">-</span></div>
+  <div class="stat">Temp: <span id="temp"></span></div>
+  <div class="stat">Water: <span id="water"></span></div>
+  <div class="stat">Coins: <span id="coins"></span></div>
+  <div class="stat">Fertilizer Bonus: <span id="fert"></span></div>
+  <hr>
+
+  <div id="bid-area" style="display:none;">
+    <span class="section-label">Event Pool: pay coins to stack the pool & try to see the event</span>
+    <select id="bidEventChoice">
+      <option value="double_water">Double Water</option>
+      <option value="half_water">Half Water</option>
+      <option value="double_fert_odds">Double Fertilizer Odds</option>
+      <option value="half_fert_odds">Half Fertilizer Odds</option>
+      <option value="nothing">Nothing</option>
+    </select><br>
+    <input id="bidAmount" type="number" placeholder="Coins to spend" style="width:100px;">
+    <button onclick="submitBid()">Submit Contribution</button>
+  </div>
+
+  <div id="event-reveal-area" style="display:none;"><div class="event-reveal" id="eventRevealText"></div></div>
+
+  <div id="action-area" style="display:none;">
+    <span class="section-label">Choose your Free Action (choose one)</span>
+    <button onclick="chooseAction('temp')">Temperature</button>
+    <button onclick="chooseAction('water')">Water</button>
+    <button onclick="chooseAction('fert')">Fertilizer</button>
+
+    <span class="section-label">Optional: buy Action Cards (1 coin each, extends influence only)</span>
+    <button class="secondary" onclick="buyActionCard('temp')">Push Temp (+influence to the Scale)</button>
+    <button class="secondary" onclick="buyActionCard('water','share')">Add Water weight (Share)</button>
+    <button class="secondary" onclick="buyActionCard('water','steal')">Add Water weight (Steal)</button>
+
+    <span class="section-label">Optional: Sacrifice a resource point for a coin</span>
+    <input id="sacAmount" type="number" placeholder="Amount" style="width:60px;">
+    <button onclick="sacrifice('temp')">Sacrifice Temp</button>
+    <button onclick="sacrifice('water')">Sacrifice Water</button>
+    <button onclick="sacrifice('fert')">Sacrifice Fertilizer</button>
+
+    <span class="section-label">Optional: Gift coins to another player</span>
+    <input id="giftTarget" placeholder="Player name"><br>
+    <input id="giftAmount" type="number" placeholder="Amount" style="width:60px;">
+    <button onclick="giftCoins()">Send Gift</button>
+
+    <br><br>
+    <button onclick="confirmDone()">Lock In My Action</button>
+  </div>
+
+  <div id="water-choice-area" style="display:none;">
+    <p>Water: Share or Steal?</p>
+    <button onclick="submitWater('share')">Share</button>
+    <button onclick="submitWater('steal')">Steal</button>
+  </div>
+
+  <div id="status" style="margin-top:10px; font-weight:bold;"></div>
+</div>
+
+<div class="card"><h4>Log</h4><div id="log"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+<script>
+let gameId, playerId, stompClient, currentState;
+
+function joinGame() {
+  gameId = document.getElementById('gameId').value.trim().toUpperCase();
+  const name = document.getElementById('playerName').value.trim();
+  fetch(`/api/join-game/${gameId}`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name})})
+    .then(r => r.json()).then(data => {
+      if (data.error) { alert(data.error); return; }
+      playerId = data.playerId;
+      document.getElementById('seed').innerText = data.seed;
+      document.getElementById('seed').className = data.seed === 'hot' ? 'seed-hot' : 'seed-cold';
+      document.getElementById('join-card').style.display = 'none';
+      document.getElementById('game-card').style.display = 'block';
+      connectSocket();
+    });
+}
+
+function connectSocket() {
+  const socket = new SockJS('/ws');
+  stompClient = Stomp.over(socket);
+  stompClient.connect({}, () => {
+    stompClient.subscribe(`/topic/game/${gameId}`, msg => renderState(JSON.parse(msg.body)));
+  });
+}
+
+function renderState(state) {
+  currentState = state;
+  document.getElementById('round').innerText = state.currentRound;
+  document.getElementById('totalRounds').innerText = state.totalRounds;
+  const me = state.players[playerId];
+  if (!me) return;
+  document.getElementById('temp').innerText = me.temp;
+  document.getElementById('water').innerText = me.water;
+  document.getElementById('coins').innerText = me.coins;
+  document.getElementById('fert').innerText = me.fertBonus.toFixed(1);
+  document.getElementById('log').innerHTML = state.log.slice(-8).reverse().map(l => `<div>${l}</div>`).join('');
+
+  if (state.biddingOpen) {
+    document.getElementById('bid-area').style.display = me.bidSubmitted ? 'none' : 'block';
+    document.getElementById('action-area').style.display = 'none';
+    document.getElementById('event-reveal-area').style.display = 'none';
+    document.getElementById('status').innerText = me.bidSubmitted ? 'Contribution submitted, waiting...' : '';
+  } else if (state.actionsOpen) {
+    document.getElementById('bid-area').style.display = 'none';
+    if (state.auctionWinnerIds && state.auctionWinnerIds.includes(playerId)) {
+      document.getElementById('event-reveal-area').style.display = 'block';
+      document.getElementById('eventRevealText').innerText = 'You can see it! Event: ' + state.currentEvent;
+    } else {
+      document.getElementById('event-reveal-area').style.display = 'none';
+    }
+    document.getElementById('action-area').style.display = me.actionSubmitted ? 'none' : 'block';
+    document.getElementById('status').innerText = me.actionSubmitted ? 'Action locked in, waiting...' : '';
+  } else {
+    document.getElementById('bid-area').style.display = 'none';
+    document.getElementById('action-area').style.display = 'none';
+    document.getElementById('event-reveal-area').style.display = 'block';
+    document.getElementById('eventRevealText').innerText = 'Round resolved. Event: ' + state.currentEvent + ' | Temp Scale: ' + state.lastRoundScale;
+    document.getElementById('status').innerText = 'Waiting for host...';
+  }
+}
+
+function submitBid() {
+  const amount = parseInt(document.getElementById('bidAmount').value) || 0;
+  const eventChoice = document.getElementById('bidEventChoice').value;
+  fetch(`/api/${gameId}/submit-bid`, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({playerId, amount, eventChoice})});
+}
+
+let pendingAction = null;
+function chooseAction(action) {
+  pendingAction = action;
+  if (action === 'water') {
+    document.getElementById('water-choice-area').style.display = 'block';
+  } else {
+    alert('Free action set to: ' + action + '. Click "Lock In My Action" when ready.');
+  }
+}
+function submitWater(choice) {
+  pendingAction = 'water';
+  window.waterChoice = choice;
+  document.getElementById('water-choice-area').style.display = 'none';
+  alert('Free action set to Water (' + choice + '). Click "Lock In My Action" when ready.');
+}
+
+function buyActionCard(target, waterChoice) {
+  fetch(`/api/${gameId}/buy-action-card`, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({playerId, target, waterChoice: waterChoice || null})});
+}
+
+function sacrifice(stat) {
+  const amount = parseInt(document.getElementById('sacAmount').value);
+  if (!amount || amount <= 0) return;
+  fetch(`/api/${gameId}/sacrifice`, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({playerId, stat, amount})});
+}
+
+function giftCoins() {
+  const targetName = document.getElementById('giftTarget').value.trim();
+  const amount = parseInt(document.getElementById('giftAmount').value);
+  if (!targetName || !amount) return;
+  const target = Object.values(currentState.players).find(p => p.name === targetName);
+  if (!target) { alert('Player not found'); return; }
+  fetch(`/api/${gameId}/gift-coins`, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({fromId: playerId, toId: target.id, amount})});
+}
+
+function confirmDone() {
+  if (!pendingAction) { alert('Choose a Free Action first.'); return; }
+  fetch(`/api/${gameId}/submit-action`, {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({playerId, action: pendingAction, waterChoice: window.waterChoice || null})});
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: the-garden
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
