@@ -15,6 +15,8 @@
   button:disabled { background:#ccc; color:#999; cursor:not-allowed; }
   button.secondary { background:#1976d2; }
   button.secondary:hover:not(:disabled) { background:#1565c0; }
+  button.danger { background:#c62828; }
+  button.danger:hover:not(:disabled) { background:#a01c1c; }
   button.event-btn { padding: 10px 12px; margin: 6px 6px 6px 0; width: calc(50% - 6px); font-size: 12px; text-align: center; flex-grow: 1; }
   button.event-btn.selected { background:#0d47a1; font-weight: bold; }
   .event-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
@@ -36,6 +38,7 @@
   .modal-buttons button { flex:1; }
   .optional-action-btn { width:100%; margin:4px 0; }
   .optional-actions { margin-top:12px; padding-top:12px; border-top:1px solid #eee; }
+  .resume-banner { background:#e3f2fd; color:#0d47a1; padding:8px 12px; border-radius:8px; font-size:12px; margin-bottom:10px; text-align:center; }
   
   @media (max-width: 600px) {
     body { padding: 0 12px; }
@@ -70,12 +73,14 @@
 
 
 <div class="card" id="game-card" style="display:none;">
+  <div id="resumeBanner" class="resume-banner" style="display:none;">Reconnected to your existing session.</div>
   <div class="stat">Seed: <span id="seed"></span></div>
   <div class="stat">Round: <span id="round">-</span> / <span id="totalRounds">-</span></div>
   <div class="stat">Temp: <span id="temp"></span></div>
   <div class="stat">Water: <span id="water"></span></div>
   <div class="stat">Coins: <span id="coins"></span></div>
   <div class="stat">Fertilizer Bonus: <span id="fert"></span></div>
+  <button class="danger" style="width:100%; margin-top:8px;" onclick="leaveGame()">Leave Game</button>
   <hr>
 
 
@@ -212,6 +217,7 @@
 <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
 <script>
+const SESSION_KEY = 'theGardenSession';
 let gameId, playerId, stompClient, currentState;
 let boughtActionCards = []; // Track reversible actions
 let sacrificedResources = []; // Track reversible actions
@@ -226,6 +232,8 @@ function joinGame() {
     .then(r => r.json()).then(data => {
       if (data.error) { alert(data.error); return; }
       playerId = data.playerId;
+      // Persist this session so a refresh can reconnect as the same player instead of losing them.
+      localStorage.setItem(SESSION_KEY, JSON.stringify({gameId, playerId}));
       // Seeds are assigned in bulk once the host starts Round 1, not at join time.
       // renderState() below will pick up the real seed as soon as it exists in the broadcast state.
       document.getElementById('seed').innerText = 'Assigning...';
@@ -234,6 +242,55 @@ function joinGame() {
       document.getElementById('game-card').style.display = 'block';
       connectSocket();
     });
+}
+
+
+// On page load, check for a saved session and silently reconnect as that same player
+// instead of forcing a fresh join. This is what fixes players getting "booted" on refresh.
+function tryResumeSession() {
+  const saved = localStorage.getItem(SESSION_KEY);
+  if (!saved) return;
+
+  let session;
+  try {
+    session = JSON.parse(saved);
+  } catch (e) {
+    localStorage.removeItem(SESSION_KEY);
+    return;
+  }
+  if (!session.gameId || !session.playerId) {
+    localStorage.removeItem(SESSION_KEY);
+    return;
+  }
+
+  fetch(`/api/${session.gameId}/state`)
+    .then(r => {
+      if (!r.ok) throw new Error('Game not found');
+      return r.json();
+    })
+    .then(state => {
+      if (!state || !state.players || !state.players[session.playerId]) {
+        // The saved player no longer exists in this game (e.g. the server restarted).
+        localStorage.removeItem(SESSION_KEY);
+        return;
+      }
+      gameId = session.gameId;
+      playerId = session.playerId;
+      document.getElementById('join-card').style.display = 'none';
+      document.getElementById('game-card').style.display = 'block';
+      document.getElementById('resumeBanner').style.display = 'block';
+      renderState(state);
+      connectSocket();
+    })
+    .catch(() => {
+      localStorage.removeItem(SESSION_KEY);
+    });
+}
+
+
+function leaveGame() {
+  localStorage.removeItem(SESSION_KEY);
+  location.reload();
 }
 
 
@@ -591,6 +648,9 @@ function updateEventButtons() {
 
 
 // Set up bid amount listener to enable/disable event buttons (already handled by onchange in HTML)
+
+// Attempt to resume an existing session as soon as the page loads.
+tryResumeSession();
 
 
 </script>
