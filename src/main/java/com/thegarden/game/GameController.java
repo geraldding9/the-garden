@@ -87,6 +87,15 @@ public class GameController {
         return Map.of("status", "ok");
     }
 
+    @PostMapping("/api/{gameId}/kick-player")
+    public Map<String, Object> kickPlayer(@PathVariable String gameId, @RequestBody Map<String, Object> body) {
+        GameSession session = gameManager.getGame(gameId);
+        if (session == null) return Map.of("error", "Game not found");
+        boolean success = session.kickPlayer((String) body.get("playerId"));
+        broadcastState(gameId);
+        return Map.of("status", success ? "ok" : "player not found");
+    }
+
     @GetMapping("/api/{gameId}/state")
     public GameSession getState(@PathVariable String gameId) { return gameManager.getGame(gameId); }
 

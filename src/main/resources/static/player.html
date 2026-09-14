@@ -39,6 +39,7 @@
   .optional-action-btn { width:100%; margin:4px 0; }
   .optional-actions { margin-top:12px; padding-top:12px; border-top:1px solid #eee; }
   .resume-banner { background:#e3f2fd; color:#0d47a1; padding:8px 12px; border-radius:8px; font-size:12px; margin-bottom:10px; text-align:center; }
+  .kicked-banner { background:#ffebee; color:#c62828; padding:16px; border-radius:10px; text-align:center; }
   
   @media (max-width: 600px) {
     body { padding: 0 12px; }
@@ -270,7 +271,7 @@ function tryResumeSession() {
     })
     .then(state => {
       if (!state || !state.players || !state.players[session.playerId]) {
-        // The saved player no longer exists in this game (e.g. the server restarted).
+        // The saved player no longer exists in this game (e.g. the server restarted, or was kicked).
         localStorage.removeItem(SESSION_KEY);
         return;
       }
@@ -291,6 +292,18 @@ function tryResumeSession() {
 function leaveGame() {
   localStorage.removeItem(SESSION_KEY);
   location.reload();
+}
+
+
+// Called when a live broadcast no longer includes this player (the host removed them).
+function handleKicked() {
+  localStorage.removeItem(SESSION_KEY);
+  if (stompClient) {
+    try { stompClient.disconnect(); } catch (e) {}
+  }
+  document.getElementById('game-card').innerHTML =
+    '<div class="kicked-banner"><h3>You have been removed from this game.</h3>' +
+    '<button onclick="location.reload()">Return to Join Screen</button></div>';
 }
 
 
@@ -315,7 +328,10 @@ function renderState(state) {
   document.getElementById('round').innerText = state.currentRound;
   document.getElementById('totalRounds').innerText = state.totalRounds;
   const me = state.players[playerId];
-  if (!me) return;
+  if (!me) {
+    handleKicked();
+    return;
+  }
 
   // Seed may still be null if the host hasn't started Round 1 yet (seeds are assigned
   // in bulk at that point to guarantee an even Hot/Cold split, not per-player at join time).

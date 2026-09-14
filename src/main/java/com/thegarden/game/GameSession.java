@@ -16,16 +16,19 @@ public class GameSession {
     public List<String> log = new ArrayList<>();
     public int lastRoundScale = 0;
 
+
     private static final String[] EVENT_TYPES = {
         "double_water","half_water","double_fert_odds","half_fert_odds","nothing"
     };
     private static final int TEMP_SCALE_CAP = 2;
     private final Random random = new Random();
 
+
     public GameSession(String gameId, int totalRounds) {
         this.gameId = gameId;
         this.totalRounds = totalRounds;
     }
+
 
     public Player addPlayer(String name) {
         String id = UUID.randomUUID().toString().substring(0, 8);
@@ -34,15 +37,31 @@ public class GameSession {
         return p;
     }
 
+
+    // Host-triggered removal: takes the player out of the game entirely. Any player whose
+    // browser is still open will notice on their next state update that they no longer
+    // appear in `players`, and the client is responsible for showing a "removed" message.
+    public boolean kickPlayer(String playerId) {
+        Player p = players.remove(playerId);
+        if (p != null) {
+            log.add(p.name + " was removed from the game by the host.");
+            return true;
+        }
+        return false;
+    }
+
+
     public void assignSeeds() {
         // Only assign if not already assigned
         if (players.values().stream().anyMatch(p -> p.seed != null)) {
             return; // Seeds already assigned
         }
 
+
         int playerCount = players.size();
         int hotCount = playerCount / 2;
         int coldCount = playerCount - hotCount;
+
 
         // For odd number of players, randomly decide if the extra goes to hot or cold
         if (playerCount % 2 == 1) {
@@ -52,9 +71,11 @@ public class GameSession {
             }
         }
 
+
         // Shuffle players and assign seeds
         List<Player> playerList = new ArrayList<>(players.values());
         Collections.shuffle(playerList, random);
+
 
         for (int i = 0; i < hotCount; i++) {
             playerList.get(i).seed = "hot";
@@ -63,18 +84,22 @@ public class GameSession {
             playerList.get(i).seed = "cold";
         }
 
+
         log.add("Seeds assigned: " + hotCount + " hot, " + coldCount + " cold.");
     }
+
 
     public boolean isLastRound() {
         return currentRound >= totalRounds;
     }
+
 
     public void startRound() {
         // Assign seeds on first round only
         if (currentRound == 0) {
             assignSeeds();
         }
+
 
         currentRound++;
         currentEvent = "nothing";
@@ -90,10 +115,12 @@ public class GameSession {
         log.add("Round " + currentRound + " of " + totalRounds + " started. Bidding phase open.");
     }
 
+
     public boolean allBidsSubmitted() {
         for (Player p : players.values()) if (!p.bidSubmitted) return false;
         return true;
     }
+
 
     public void submitBid(String playerId, int amount, String eventChoice) {
         Player p = players.get(playerId);
@@ -104,11 +131,13 @@ public class GameSession {
         p.bidSubmitted = true;
     }
 
+
     public void resolveBidding() {
         List<String> pool = new ArrayList<>(Arrays.asList(EVENT_TYPES));
         int maxContrib = -1;
         List<String> topContributors = new ArrayList<>();
         Map<String, String> contributedType = new HashMap<>();
+
 
         for (Player p : players.values()) {
             int copies = p.currentBid;
@@ -121,7 +150,9 @@ public class GameSession {
             else if (copies == maxContrib && maxContrib > 0) topContributors.add(p.id);
         }
 
+
         currentEvent = pool.get(random.nextInt(pool.size()));
+
 
         if (maxContrib > 0) {
             auctionWinnerIds.addAll(topContributors);
@@ -130,20 +161,24 @@ public class GameSession {
             log.add("No one contributed to the Event Pool this round.");
         }
 
+
         for (Map.Entry<String,String> e : contributedType.entrySet()) {
             if (e.getValue().equals(currentEvent)) {
                 players.get(e.getKey()).coins += 1;
             }
         }
 
+
         biddingOpen = false;
         actionsOpen = true;
     }
+
 
     public boolean allActionsSubmitted() {
         for (Player p : players.values()) if (!p.actionSubmitted) return false;
         return true;
     }
+
 
     public void submitAction(String playerId, String action, String waterChoice) {
         Player p = players.get(playerId);
@@ -152,6 +187,7 @@ public class GameSession {
         p.waterChoice = waterChoice;
         p.actionSubmitted = true;
     }
+
 
     public void buyActionCard(String playerId, String target, String waterChoiceForCard) {
         Player p = players.get(playerId);
@@ -162,6 +198,7 @@ public class GameSession {
         if ("water".equals(target)) p.actionCardWaterChoice = waterChoiceForCard;
         p.personalLog.add("You bought an Action Card targeting " + target + ".");
     }
+
 
     public void sacrifice(String playerId, String stat, int amount) {
         Player p = players.get(playerId);
@@ -187,6 +224,7 @@ public class GameSession {
         }
     }
 
+
     public void giftCoins(String fromId, String toId, int amount) {
         Player from = players.get(fromId);
         Player to = players.get(toId);
@@ -196,6 +234,7 @@ public class GameSession {
         from.personalLog.add("You gifted " + amount + " coin(s) to " + to.name + ".");
         to.personalLog.add("You received " + amount + " coin(s) from " + from.name + ".");
     }
+
 
     private List<Long> fibSequence(int n) {
         List<Long> fibs = new ArrayList<>();
@@ -207,8 +246,10 @@ public class GameSession {
         return fibs.subList(0, Math.max(n,1));
     }
 
+
     public void resolveRound() {
         eventRevealedToAll = true;
+
 
         int roundScale = 0;
         List<Player> tempActors = new ArrayList<>();
@@ -229,6 +270,7 @@ public class GameSession {
             if (favored) { p.temp += stakes; p.coins += 1; }
         }
 
+
         List<Player> waterActors = new ArrayList<>();
         for (Player p : players.values()) if ("water".equals(p.currentAction)) waterActors.add(p);
         double extraWaterWeight = 0;
@@ -236,11 +278,13 @@ public class GameSession {
             if ("water".equals(p.actionCardTarget)) extraWaterWeight += p.actionCardsBought;
         }
 
+
         if (!waterActors.isEmpty()) {
             double multiplier = 1.0;
             if (currentEvent.equals("double_water")) multiplier = 2.0;
             if (currentEvent.equals("half_water")) multiplier = 0.5;
             int poolSize = (int)(waterActors.size() * multiplier + extraWaterWeight) + (int)waterCarryover;
+
 
             List<Player> stealers = new ArrayList<>();
             List<Player> sharers = new ArrayList<>();
@@ -265,6 +309,7 @@ public class GameSession {
             }
         }
 
+
         for (Player p : players.values()) {
             if ("fert".equals(p.currentAction)) {
                 p.fertActions += 1;
@@ -278,6 +323,7 @@ public class GameSession {
                 p.fertBonus += fibSum * (drawVal / 1.7);
             }
         }
+
 
         if (isLastRound()) {
             for (Player p : players.values()) {
@@ -294,9 +340,11 @@ public class GameSession {
             log.add("Final round resolved. Leftover coins converted to score automatically.");
         }
 
+
         actionsOpen = false;
         log.add("Round " + currentRound + " resolved. Event was: " + currentEvent + ". Temp Scale: " + roundScale + " (stakes paid: " + stakes + ")");
     }
+
 
     public List<Player> getLeaderboard() {
         List<Player> sorted = new ArrayList<>(players.values());
